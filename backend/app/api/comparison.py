@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Header, HTTPException
 
 from app.api.documents import get_document_path, _documents
 from app.models.schemas import (
@@ -128,7 +128,7 @@ def _build_version_comparison(
     return diff_changes, vc
 
 
-async def _execute_comparison(session_id: UUID):
+async def _execute_comparison(session_id: UUID, api_key: str | None = None):
     """Execute the full comparison pipeline for a session.
 
     Supports three modes (ADR-006):
@@ -227,7 +227,7 @@ async def _execute_comparison(session_id: UUID):
                 ))
 
             ai_results = await analyze_changes(
-                diff_changes_for_ai, session.reviewing_party
+                diff_changes_for_ai, session.reviewing_party, api_key=api_key
             )
 
             if ai_results:
@@ -307,8 +307,18 @@ async def get_session(session_id: UUID):
 
 
 @router.post("/sessions/{session_id}/run")
-async def run_comparison(session_id: UUID, background_tasks: BackgroundTasks):
-    """Trigger the comparison pipeline for a session."""
+async def run_comparison(
+    session_id: UUID,
+    background_tasks: BackgroundTasks,
+    x_api_key: str | None = Header(default=None),
+):
+    """Trigger the comparison pipeline for a session.
+
+    Optionally accepts an X-API-Key header containing the user's Anthropic API
+    key. When provided it is used for AI analysis in preference to the server's
+    environment variable. The key is never stored — it is only held in memory
+    for the duration of this background task.
+    """
     if session_id not in _sessions:
         raise HTTPException(status_code=404, detail="Session not found.")
 
@@ -320,8 +330,8 @@ async def run_comparison(session_id: UUID, background_tasks: BackgroundTasks):
             detail=f"Session is in '{session.status}' state and cannot be run.",
         )
 
-    # Run comparison in background
-    background_tasks.add_task(_execute_comparison, session_id)
+    # Run comparison in background, forwarding the user-supplied key (if any)
+    background_tasks.add_task(_execute_comparison, session_id, x_api_key)
 
     session.status = SessionStatus.COMPARING
     session.progress = 0.0

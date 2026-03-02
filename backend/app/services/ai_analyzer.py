@@ -160,12 +160,13 @@ ANALYSIS_TOOL = {
 }
 
 
-def _get_client() -> Anthropic | None:
-    """Get Anthropic client, or None if API key not configured."""
-    if not settings.anthropic_api_key:
-        logger.warning("ANTHROPIC_API_KEY not set. AI analysis disabled.")
+def _get_client(api_key: str | None = None) -> Anthropic | None:
+    """Get Anthropic client using the provided key, falling back to settings."""
+    key = api_key or settings.anthropic_api_key
+    if not key:
+        logger.warning("No Anthropic API key available. AI analysis disabled.")
         return None
-    return Anthropic(api_key=settings.anthropic_api_key)
+    return Anthropic(api_key=key)
 
 
 async def analyze_changes(
@@ -173,6 +174,7 @@ async def analyze_changes(
     reviewing_party: ReviewingParty,
     change_ids: list[UUID] | None = None,
     model: str | None = None,
+    api_key: str | None = None,
 ) -> list[dict]:
     """Analyze all changes using a single LLM call with full context.
 
@@ -186,7 +188,7 @@ async def analyze_changes(
         List of analysis dicts (one per change) with summary, risk, etc.
         Returns empty list if API key not configured or call fails.
     """
-    client = _get_client()
+    client = _get_client(api_key)
     if client is None:
         return []
 

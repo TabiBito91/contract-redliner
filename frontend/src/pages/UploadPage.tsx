@@ -6,7 +6,7 @@ import { uploadDocument, createSession, runComparison } from "@/services/api";
 import { formatFileSize } from "@/lib/utils";
 import type { DocumentInfo, ReviewingParty, ComparisonMode } from "@/types/api";
 
-export default function UploadPage() {
+export default function UploadPage({ apiKey }: { apiKey?: string }) {
   const navigate = useNavigate();
   const [documents, setDocuments] = useState<DocumentInfo[]>([]);
   const [originalId, setOriginalId] = useState<string | null>(null);
@@ -73,7 +73,7 @@ export default function UploadPage() {
         comparison_mode: comparisonMode,
         reviewing_party: reviewingParty,
       });
-      await runComparison(session.id);
+      await runComparison(session.id, apiKey);
       navigate(`/compare/${session.id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to start comparison");

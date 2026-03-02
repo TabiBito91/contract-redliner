@@ -56,8 +56,14 @@ export async function getSession(sessionId: string): Promise<ComparisonSession> 
   return request(`/comparison/sessions/${sessionId}`);
 }
 
-export async function runComparison(sessionId: string): Promise<{ message: string }> {
-  return request(`/comparison/sessions/${sessionId}/run`, { method: "POST" });
+export async function runComparison(
+  sessionId: string,
+  apiKey?: string,
+): Promise<{ message: string }> {
+  return request(`/comparison/sessions/${sessionId}/run`, {
+    method: "POST",
+    headers: apiKey ? { "X-API-Key": apiKey } : {},
+  });
 }
 
 export async function getResult(sessionId: string): Promise<ComparisonResult> {
