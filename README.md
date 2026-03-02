@@ -21,46 +21,24 @@ AI-powered contract redlining tool. Upload two or more contract versions and get
 
 ## Getting Started
 
-### Docker (recommended)
-
-Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/).
-
-```bash
-# Optional: add your Anthropic API key (users can also supply their own via the UI)
-cp .env.example .env
-
-docker compose up --build
-```
-
-Open http://localhost. Uploaded files are stored in a named Docker volume so they persist across restarts.
-
-To stop:
-```bash
-docker compose down
-```
-
----
-
-### Manual setup (development)
-
-#### Prerequisites
+### Prerequisites
 
 - Python 3.13+
 - Node.js 22+
 
-#### Backend
+### Backend
 
 ```bash
 cd backend
 pip install -r requirements.txt
 
-# Optional: enable server-side AI analysis
-cp ../.env.example .env   # then add your ANTHROPIC_API_KEY
+# Optional: enable AI analysis
+cp .env.example .env   # then add your ANTHROPIC_API_KEY
 
 PYTHONPATH=. python -m uvicorn app.main:app --port 8000
 ```
 
-#### Frontend
+### Frontend
 
 ```bash
 cd frontend
@@ -70,14 +48,15 @@ npm run dev
 
 Open http://localhost:5173.
 
-### API Key
+### Environment Variables
 
-AI features (change summaries, risk analysis) require an Anthropic API key. You can supply it two ways:
+Create `backend/.env` to enable AI features:
 
-- **Per-user via the UI** — click "Add API key" in the header. The key is stored in your browser only, never on the server.
-- **Server-wide via `.env`** — set `ANTHROPIC_API_KEY` in `.env`. All users share this key.
+```
+ANTHROPIC_API_KEY=sk-ant-...
+```
 
-The app runs without any key — the diff viewer and DOCX export work normally.
+The app runs without an API key — AI analysis is silently disabled and all other features work normally.
 
 ## API Routes
 
