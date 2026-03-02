@@ -14,10 +14,13 @@ app = FastAPI(
     description="Intelligent Document Comparison & Risk Analysis Platform",
 )
 
+# Parse comma-separated CORS origins (also accepts a single URL)
+_cors_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+
 # CORS middleware for React frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
