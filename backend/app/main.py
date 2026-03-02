@@ -14,10 +14,13 @@ app = FastAPI(
     description="Intelligent Document Comparison & Risk Analysis Platform",
 )
 
-# CORS middleware - allow all origins
+# Parse comma-separated CORS origins from env var (e.g. "https://x.vercel.app")
+_cors_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+
+# CORS middleware for React frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
