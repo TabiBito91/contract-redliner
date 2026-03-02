@@ -10,8 +10,6 @@ services:
         value: /data/uploads
       - key: ANTHROPIC_API_KEY
         sync: false            # set manually in the Render dashboard (optional)
-      - key: CORS_ORIGINS
-        sync: false            # set to ["https://your-app.vercel.app"] after Vercel deploy
     disk:
       name: uploads
       mountPath: /data/uploads
