@@ -88,6 +88,35 @@ def _normalize_ws(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _extract_section_number(text: str) -> float | None:
+    """Return the leading section number from a heading string, or None.
+
+    Handles formats like '3.', '3.1', '10.' at the start of the text.
+    """
+    import re
+    if not text:
+        return None
+    m = re.match(r"^(\d+(?:\.\d+)?)", text.strip())
+    return float(m.group(1)) if m else None
+
+
+def _build_section_end_map(doc_paragraphs) -> dict[float, int]:
+    """Map each section number to the index of its last paragraph.
+
+    Scans the document for lines that start with a section number and
+    tracks the furthest paragraph index seen under each section heading.
+    """
+    section_map: dict[float, int] = {}
+    current_section: float | None = None
+    for i, para in enumerate(doc_paragraphs):
+        num = _extract_section_number(para.text)
+        if num is not None:
+            current_section = num
+        if current_section is not None:
+            section_map[current_section] = i  # advances to last para of section
+    return section_map
+
+
 def _match_para_index(doc_paragraphs, original_text: str) -> int | None:
     """Find the best matching paragraph index in the DOCX by text content."""
     if not original_text:
@@ -176,55 +205,78 @@ def generate_redline_docx(
     doc_paragraphs = list(doc.paragraphs)
     used_indices: set[int] = set()
 
-    # Process all changes in a single pass in document order.
-    # Additions are inserted immediately after the last matched paragraph
-    # (their natural position) rather than appended to the end.
-    last_anchor_elem = None  # XML element after which to insert additions
+    # Build section-number → last-paragraph-index map for anchor lookups
+    section_end_map = _build_section_end_map(doc_paragraphs)
 
+    # Apply modifications and deletions to matched paragraphs
     for ac in active_changes:
         ct = ac.change.change_type
-
         if ct == ChangeType.ADDITION:
-            # Insert a new paragraph after the last anchor element
-            new_p = OxmlElement("w:p")
-            if last_anchor_elem is not None:
-                last_anchor_elem.addnext(new_p)
-            else:
-                # No anchor yet — fall back to appending
-                doc.element.body.append(new_p)
+            continue
 
-            from docx.text.paragraph import Paragraph as DocxParagraph
-            para = DocxParagraph(new_p, doc._body)
-            _add_formatted_run(para, "[ADDED] ", BLUE, bold=True)
-            _add_formatted_run(para, ac.change.modified_text or "", BLUE, underline=True)
-            if options.include_ai_summaries and ac.ai_summary:
-                _add_comment(doc, para, ac.ai_summary.summary)
-            last_anchor_elem = new_p
+        idx = _match_para_index(doc_paragraphs, ac.change.original_text)
+        if idx is None or idx in used_indices:
+            continue
+        used_indices.add(idx)
 
-        elif ct == ChangeType.DELETION:
-            idx = _match_para_index(doc_paragraphs, ac.change.original_text)
-            if idx is not None and idx not in used_indices:
-                used_indices.add(idx)
-                original_text = doc_paragraphs[idx].text
-                _clear_paragraph(doc_paragraphs[idx])
-                _add_formatted_run(doc_paragraphs[idx], original_text, RED, strikethrough=True)
-                if options.include_ai_summaries and ac.ai_summary:
-                    _add_comment(doc, doc_paragraphs[idx], ac.ai_summary.summary)
-                last_anchor_elem = doc_paragraphs[idx]._element
-
+        if ct == ChangeType.DELETION:
+            original_text = doc_paragraphs[idx].text
+            _clear_paragraph(doc_paragraphs[idx])
+            _add_formatted_run(doc_paragraphs[idx], original_text, RED, strikethrough=True)
         else:
             # MODIFICATION, MOVE, FORMAT_ONLY
-            idx = _match_para_index(doc_paragraphs, ac.change.original_text)
-            if idx is not None and idx not in used_indices:
-                used_indices.add(idx)
-                _apply_inline_redline(
-                    doc_paragraphs[idx],
-                    ac.change.original_text or "",
-                    ac.change.modified_text or "",
-                )
-                if options.include_ai_summaries and ac.ai_summary:
-                    _add_comment(doc, doc_paragraphs[idx], ac.ai_summary.summary)
-                last_anchor_elem = doc_paragraphs[idx]._element
+            _apply_inline_redline(
+                doc_paragraphs[idx],
+                ac.change.original_text or "",
+                ac.change.modified_text or "",
+            )
+        if options.include_ai_summaries and ac.ai_summary:
+            _add_comment(doc, doc_paragraphs[idx], ac.ai_summary.summary)
+
+    # Insert additions at their correct document position using section numbering.
+    # insertion_tracker maps anchor_paragraph_idx → the last element inserted
+    # after it, so consecutive additions chain correctly (2 → A → B → C).
+    from docx.text.paragraph import Paragraph as DocxParagraph
+    insertion_tracker: dict[int, object] = {}
+
+    for ac in active_changes:
+        if ac.change.change_type != ChangeType.ADDITION:
+            continue
+
+        # Determine which section number this addition belongs to
+        add_section_num = _extract_section_number(
+            ac.change.section_context or ac.change.modified_text or ""
+        )
+
+        # Find the last paragraph of the nearest preceding section
+        anchor_idx: int | None = None
+        if add_section_num is not None and section_end_map:
+            preceding = [s for s in section_end_map if s < add_section_num]
+            if preceding:
+                anchor_idx = section_end_map[max(preceding)]
+
+        # Determine the actual element to insert after
+        if anchor_idx is not None:
+            insert_after_elem = insertion_tracker.get(anchor_idx) or doc_paragraphs[anchor_idx]._element
+        else:
+            insert_after_elem = None
+
+        # Create and insert the new paragraph
+        new_p = OxmlElement("w:p")
+        if insert_after_elem is not None:
+            insert_after_elem.addnext(new_p)
+        else:
+            doc.element.body.append(new_p)
+
+        para = DocxParagraph(new_p, doc._body)
+        _add_formatted_run(para, "[ADDED] ", BLUE, bold=True)
+        _add_formatted_run(para, ac.change.modified_text or "", BLUE, underline=True)
+        if options.include_ai_summaries and ac.ai_summary:
+            _add_comment(doc, para, ac.ai_summary.summary)
+
+        # Update tracker so the next addition after the same anchor chains on
+        if anchor_idx is not None:
+            insertion_tracker[anchor_idx] = new_p
 
     # Insert disclaimer header at top
     disclaimer_para = doc.add_paragraph()
