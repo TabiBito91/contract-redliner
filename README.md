@@ -19,7 +19,35 @@ AI-powered contract redlining tool. Upload two or more contract versions and get
 | AI | Anthropic Claude (claude-sonnet-4-5) |
 | Frontend | React 18, TypeScript, Vite, Tailwind CSS v4 |
 
-## Getting Started
+## Deployment
+
+### Vercel (frontend) + Render (backend)
+
+**1. Deploy the backend to Render**
+
+- Create a new **Web Service** on [Render](https://render.com), connect this repo, and select `render.yaml` — Render will auto-configure from it.
+- In the Render dashboard, set these environment variables:
+  - `CORS_ORIGINS` → `["https://your-app.vercel.app"]` *(fill in after step 2)*
+  - `ANTHROPIC_API_KEY` → your key *(optional — users can also supply their own via the UI)*
+- Note your Render service URL: `https://your-service.onrender.com`
+
+**2. Deploy the frontend to Vercel**
+
+- Import this repo on [Vercel](https://vercel.com). The `vercel.json` points it at the `frontend/` directory automatically.
+- Add this environment variable in the Vercel dashboard:
+  - `VITE_API_BASE_URL` → `https://your-service.onrender.com/api`
+- Deploy — note your Vercel URL: `https://your-app.vercel.app`
+
+**3. Finish wiring CORS**
+
+- Go back to Render and set `CORS_ORIGINS` → `["https://your-app.vercel.app"]`
+- Render will redeploy automatically.
+
+> **Render free tier note:** the backend spins down after 15 min of inactivity; the first request after idle takes ~30s. Upgrade to the $7/mo Starter plan for always-on hosting.
+
+---
+
+## Local Development
 
 ### Prerequisites
 
@@ -31,10 +59,6 @@ AI-powered contract redlining tool. Upload two or more contract versions and get
 ```bash
 cd backend
 pip install -r requirements.txt
-
-# Optional: enable AI analysis
-cp .env.example .env   # then add your ANTHROPIC_API_KEY
-
 PYTHONPATH=. python -m uvicorn app.main:app --port 8000
 ```
 
@@ -46,17 +70,16 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173.
+Open http://localhost:5173. The Vite dev server proxies `/api` to the local backend automatically.
 
-### Environment Variables
+### API Key
 
-Create `backend/.env` to enable AI features:
+AI features (change summaries, risk analysis) require an Anthropic API key. Two options:
 
-```
-ANTHROPIC_API_KEY=sk-ant-...
-```
+- **Per-user via the UI** — click "Add API key" in the header. Stored in your browser only, never on the server.
+- **Server-wide** — set `ANTHROPIC_API_KEY` as an environment variable on Render (or in a local `.env` file in `backend/`).
 
-The app runs without an API key — AI analysis is silently disabled and all other features work normally.
+The app works without any key — the diff viewer and DOCX export are unaffected.
 
 ## API Routes
 
