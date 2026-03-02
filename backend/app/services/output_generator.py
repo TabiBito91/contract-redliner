@@ -173,53 +173,60 @@ def generate_redline_docx(
             continue
         active_changes.append(ac)
 
-    # Classify changes by type for processing
-    modification_changes: list[AnnotatedChange] = []  # have original_text
-    addition_changes: list[AnnotatedChange] = []       # pure additions (no original)
-    deletion_changes: list[AnnotatedChange] = []       # pure deletions (no modified)
-
-    for ac in active_changes:
-        ct = ac.change.change_type
-        if ct == ChangeType.DELETION:
-            deletion_changes.append(ac)
-        elif ct == ChangeType.ADDITION:
-            addition_changes.append(ac)
-        else:
-            # MODIFICATION, MOVE, FORMAT_ONLY - have both texts
-            modification_changes.append(ac)
-
-    # Match modifications and deletions to document paragraphs
     doc_paragraphs = list(doc.paragraphs)
     used_indices: set[int] = set()
 
-    # Apply inline redline to modifications (paragraphs that changed)
-    for ac in modification_changes:
-        idx = _match_para_index(doc_paragraphs, ac.change.original_text)
-        if idx is not None and idx not in used_indices:
-            used_indices.add(idx)
-            _apply_inline_redline(
-                doc_paragraphs[idx],
-                ac.change.original_text or "",
-                ac.change.modified_text or "",
-            )
-            # Add AI comment if enabled
-            if options.include_ai_summaries and ac.ai_summary:
-                _add_comment(doc, doc_paragraphs[idx], ac.ai_summary.summary)
+    # Process all changes in a single pass in document order.
+    # Additions are inserted immediately after the last matched paragraph
+    # (their natural position) rather than appended to the end.
+    last_anchor_elem = None  # XML element after which to insert additions
 
-    # Apply strikethrough to deleted paragraphs
-    for ac in deletion_changes:
-        idx = _match_para_index(doc_paragraphs, ac.change.original_text)
-        if idx is not None and idx not in used_indices:
-            used_indices.add(idx)
-            original_text = doc_paragraphs[idx].text
-            _clear_paragraph(doc_paragraphs[idx])
-            _add_formatted_run(
-                doc_paragraphs[idx], original_text, RED, strikethrough=True,
-            )
-            if options.include_ai_summaries and ac.ai_summary:
-                _add_comment(doc, doc_paragraphs[idx], ac.ai_summary.summary)
+    for ac in active_changes:
+        ct = ac.change.change_type
 
-    # Insert a disclaimer header at top
+        if ct == ChangeType.ADDITION:
+            # Insert a new paragraph after the last anchor element
+            new_p = OxmlElement("w:p")
+            if last_anchor_elem is not None:
+                last_anchor_elem.addnext(new_p)
+            else:
+                # No anchor yet — fall back to appending
+                doc.element.body.append(new_p)
+
+            from docx.text.paragraph import Paragraph as DocxParagraph
+            para = DocxParagraph(new_p, doc._body)
+            _add_formatted_run(para, "[ADDED] ", BLUE, bold=True)
+            _add_formatted_run(para, ac.change.modified_text or "", BLUE, underline=True)
+            if options.include_ai_summaries and ac.ai_summary:
+                _add_comment(doc, para, ac.ai_summary.summary)
+            last_anchor_elem = new_p
+
+        elif ct == ChangeType.DELETION:
+            idx = _match_para_index(doc_paragraphs, ac.change.original_text)
+            if idx is not None and idx not in used_indices:
+                used_indices.add(idx)
+                original_text = doc_paragraphs[idx].text
+                _clear_paragraph(doc_paragraphs[idx])
+                _add_formatted_run(doc_paragraphs[idx], original_text, RED, strikethrough=True)
+                if options.include_ai_summaries and ac.ai_summary:
+                    _add_comment(doc, doc_paragraphs[idx], ac.ai_summary.summary)
+                last_anchor_elem = doc_paragraphs[idx]._element
+
+        else:
+            # MODIFICATION, MOVE, FORMAT_ONLY
+            idx = _match_para_index(doc_paragraphs, ac.change.original_text)
+            if idx is not None and idx not in used_indices:
+                used_indices.add(idx)
+                _apply_inline_redline(
+                    doc_paragraphs[idx],
+                    ac.change.original_text or "",
+                    ac.change.modified_text or "",
+                )
+                if options.include_ai_summaries and ac.ai_summary:
+                    _add_comment(doc, doc_paragraphs[idx], ac.ai_summary.summary)
+                last_anchor_elem = doc_paragraphs[idx]._element
+
+    # Insert disclaimer header at top
     disclaimer_para = doc.add_paragraph()
     disclaimer_para.paragraph_format.space_after = Pt(12)
     _add_formatted_run(
@@ -242,22 +249,6 @@ def generate_redline_docx(
     _add_formatted_run(legend_para, "  |  ", GRAY)
     _add_formatted_run(legend_para, "Moved text", ORANGE, underline=True)
     doc.element.body.insert(1, legend_para._element)
-
-    # Append pure additions at the end (before summary appendix)
-    if addition_changes:
-        doc.add_paragraph()  # spacer
-        doc.add_heading("Added Provisions", level=2)
-
-        for ac in addition_changes:
-            para = doc.add_paragraph()
-            _add_formatted_run(para, "[ADDED] ", BLUE, bold=True)
-            _add_formatted_run(
-                para,
-                ac.change.modified_text or "",
-                BLUE, underline=True,
-            )
-            if options.include_ai_summaries and ac.ai_summary:
-                _add_comment(doc, para, ac.ai_summary.summary)
 
     # Add summary appendix if enabled
     if options.include_summary_appendix:
