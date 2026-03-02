@@ -1,4 +1,6 @@
+import json
 from pathlib import Path
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -26,6 +28,24 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, v):
+        if not isinstance(v, str):
+            return v
+        v = v.strip()
+        if not v:
+            return ["http://localhost:5173", "http://localhost:3000"]
+        # Try JSON array first: ["https://x.vercel.app"]
+        try:
+            parsed = json.loads(v)
+            if isinstance(parsed, list):
+                return parsed
+        except json.JSONDecodeError:
+            pass
+        # Fall back to comma-separated: https://x.vercel.app,https://y.vercel.app
+        return [origin.strip() for origin in v.split(",") if origin.strip()]
 
 
 settings = Settings()
