@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+@theme {
+  /* RedlineAI color tokens */
+  --color-deletion: #cc0000;
+  --color-addition: #0044cc;
+  --color-move: #ff8800;
+  --color-cosmetic: #888888;
+
+  --color-risk-critical: #cc0000;
+  --color-risk-high: #ff6600;
+  --color-risk-medium: #ddaa00;
+  --color-risk-low: #008800;
+  --color-risk-info: #0044cc;
+
+  --color-surface: #ffffff;
+  --color-surface-secondary: #f8f9fa;
+  --color-border: #e2e8f0;
+  --color-text-primary: #1a202c;
+  --color-text-secondary: #64748b;
+}
+
+body {
+  margin: 0;
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  color: var(--color-text-primary);
+  background: var(--color-surface);
+}
