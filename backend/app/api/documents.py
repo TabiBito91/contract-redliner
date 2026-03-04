@@ -41,11 +41,22 @@ async def upload_document(file: UploadFile = File(...)):
     _validate_file(file)
 
     doc_id = uuid4()
-    upload_path = settings.upload_dir / f"{doc_id}{Path(file.filename).suffix}"
+    suffix = Path(file.filename).suffix.lower()
+    upload_path = settings.upload_dir / f"{doc_id}{suffix}"
 
     # Save file to disk
     with open(upload_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
+
+    # Convert PDF to DOCX once so every downstream consumer (comparison +
+    # export) works from the same file and paragraph texts always match.
+    if suffix == ".pdf":
+        from app.services.parser import convert_pdf_to_docx
+        tmp_docx = convert_pdf_to_docx(upload_path)
+        docx_path = settings.upload_dir / f"{doc_id}.docx"
+        tmp_docx.rename(docx_path)
+        upload_path.unlink(missing_ok=True)  # original PDF no longer needed
+        upload_path = docx_path
 
     file_size = upload_path.stat().st_size
 

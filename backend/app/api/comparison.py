@@ -34,43 +34,19 @@ _results: dict[UUID, ComparisonResult] = {}
 
 
 def _run_diff(original_path: str, modified_path: str, version_label: str) -> list[dict]:
-    """Run the diff engine in a worker (serializable for ProcessPoolExecutor).
-
-    Any PDF inputs are transparently converted to a temporary DOCX so that
-    both documents go through the same DocxParser pipeline, giving the same
-    paragraph granularity and heading detection as a native DOCX-to-DOCX
-    comparison.
-    """
-    from app.services.parser import convert_pdf_to_docx
-
+    """Run the diff engine in a worker (serializable for ProcessPoolExecutor)."""
     orig_path = Path(original_path)
     mod_path = Path(modified_path)
-    orig_tmp: Path | None = None
-    mod_tmp: Path | None = None
+    orig_id = uuid4()
+    mod_id = uuid4()
 
-    try:
-        if orig_path.suffix.lower() == ".pdf":
-            orig_tmp = convert_pdf_to_docx(orig_path)
-            orig_path = orig_tmp
-        if mod_path.suffix.lower() == ".pdf":
-            mod_tmp = convert_pdf_to_docx(mod_path)
-            mod_path = mod_tmp
+    parser = parser_registry.get_parser(orig_path)
+    orig_doc = parser.parse(orig_path, orig_id)
 
-        orig_id = uuid4()
-        mod_id = uuid4()
+    parser2 = parser_registry.get_parser(mod_path)
+    mod_doc = parser2.parse(mod_path, mod_id)
 
-        parser = parser_registry.get_parser(orig_path)
-        orig_doc = parser.parse(orig_path, orig_id)
-
-        parser2 = parser_registry.get_parser(mod_path)
-        mod_doc = parser2.parse(mod_path, mod_id)
-
-        changes = compare_documents(orig_doc, mod_doc, version_label)
-    finally:
-        if orig_tmp:
-            orig_tmp.unlink(missing_ok=True)
-        if mod_tmp:
-            mod_tmp.unlink(missing_ok=True)
+    changes = compare_documents(orig_doc, mod_doc, version_label)
 
     # Serialize DiffChange to dict for cross-process transport
     return [
