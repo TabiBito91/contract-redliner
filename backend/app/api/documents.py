@@ -54,12 +54,13 @@ async def upload_document(file: UploadFile = File(...)):
     # Run in a thread so the async event loop stays responsive during conversion.
     # Use shutil.move instead of Path.rename for cross-filesystem safety on Windows.
     if suffix == ".pdf":
-        from app.services.parser import convert_pdf_to_docx
         docx_path = settings.upload_dir / f"{doc_id}.docx"
 
         def _convert():
+            from app.services.parser import convert_pdf_to_docx, _patch_converted_docx
             tmp = convert_pdf_to_docx(upload_path)
             shutil.move(str(tmp), str(docx_path))
+            _patch_converted_docx(docx_path)
 
         await asyncio.to_thread(_convert)
         upload_path.unlink(missing_ok=True)  # original PDF no longer needed

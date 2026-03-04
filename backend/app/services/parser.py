@@ -354,6 +354,83 @@ class PdfParser(DocumentParser):
         return m.group(1).rstrip(".") if m else None
 
 
+def _patch_converted_docx(docx_path: Path) -> None:
+    """Fix heading structure in a pdf2docx-converted DOCX.
+
+    pdf2docx renders section headings as bold Normal-style paragraphs with a
+    soft line break (\\n in para.text) separating the heading text from the
+    first sentence of body text.  This function:
+      1. Detects such merged paragraphs (bold + section-number prefix + \\n).
+      2. Inserts a proper Heading-styled paragraph for the heading text.
+      3. Rewrites the original paragraph to contain only the body text.
+
+    Without this fix DocxParser sees no headings and treats the entire document
+    as one flat provision, producing whole-section ADDITION/DELETION diffs
+    instead of inline changes.
+    """
+    from docx import Document
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+
+    _section_re = re.compile(r"^\d+(?:\.\d+)*\.?\s")
+
+    doc = Document(str(docx_path))
+    modified = False
+
+    for para in list(doc.paragraphs):
+        text = para.text
+        if "\n" not in text:
+            continue
+
+        lines = [ln for ln in text.split("\n") if ln.strip()]
+        if len(lines) < 2:
+            continue
+
+        first_line = lines[0].strip()
+        if not _section_re.match(first_line):
+            continue
+
+        is_bold = any(run.bold for run in para.runs if run.text.strip())
+        if not is_bold:
+            continue
+
+        # Determine heading depth from the section number (e.g. "3.1" → depth 2)
+        m = re.match(r"^(\d+(?:\.\d+)*)", first_line)
+        depth = len(m.group(1).split(".")) if m else 1
+        level = min(depth, 6)
+
+        # Add a proper Heading paragraph via the python-docx API (handles style
+        # lookup correctly), then move it immediately before the current paragraph.
+        heading_para = doc.add_heading(first_line, level=level)
+        para._element.addprevious(heading_para._element)
+
+        # Rewrite the current paragraph to contain only the body text.
+        p_elem = para._element
+        for child in list(p_elem):
+            if child.tag in (qn("w:r"), qn("w:hyperlink")):
+                p_elem.remove(child)
+
+        # Drop any existing pStyle so the paragraph reverts to Normal.
+        pPr = p_elem.find(qn("w:pPr"))
+        if pPr is not None:
+            pStyle = pPr.find(qn("w:pStyle"))
+            if pStyle is not None:
+                pPr.remove(pStyle)
+
+        body_text = " ".join(ln.strip() for ln in lines[1:])
+        body_r = OxmlElement("w:r")
+        body_t = OxmlElement("w:t")
+        body_t.text = body_text
+        body_t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+        body_r.append(body_t)
+        p_elem.append(body_r)
+
+        modified = True
+
+    if modified:
+        doc.save(str(docx_path))
+
+
 def convert_pdf_to_docx(pdf_path: Path) -> Path:
     """Convert a PDF to a temporary DOCX file using pdf2docx.
 
