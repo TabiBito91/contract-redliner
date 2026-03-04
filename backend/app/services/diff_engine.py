@@ -253,6 +253,26 @@ def match_provisions(
             orig_matched.add(i)
             mod_matched.add(best_j)
 
+    # Pass 3: Section-number matching for completely replaced provisions.
+    # When a provision is fully rewritten (same section number, very different
+    # content), Passes 1 & 2 leave it unmatched, producing a DELETION + ADDITION
+    # pair that renders as separate paragraphs in the export.  Matching by
+    # identical section number converts the pair to a MODIFICATION so that
+    # _apply_inline_redline can render the change inline.
+    for i, op in enumerate(orig_provs):
+        if i in orig_matched or not op.section_number:
+            continue
+        for j, mp in enumerate(mod_provs):
+            if j in mod_matched or not mp.section_number:
+                continue
+            if op.section_number == mp.section_number:
+                is_move = abs(i - j) > 1
+                match_type = "move_heading" if is_move else "heading_match"
+                matches.append(ProvisionMatch(i, j, match_type, is_move))
+                orig_matched.add(i)
+                mod_matched.add(j)
+                break
+
     return matches, orig_matched, mod_matched
 
 

@@ -236,6 +236,18 @@ def generate_redline_docx(
     # Build section-number → last-paragraph-index map for anchor lookups
     section_end_map = _build_section_end_map(doc_paragraphs)
 
+    # P1: track the last deletion paragraph element per top-level section number
+    # so that subsequent additions in the same section can be appended inline.
+    import re as _re
+    deletion_para_by_section: dict[str, object] = {}
+
+    def _top_section(ctx: str | None) -> str | None:
+        """Extract the top-level section number (e.g. '3' from '3.1 Foo')."""
+        if not ctx:
+            return None
+        m = _re.match(r"^(\d+)", ctx)
+        return m.group(1) if m else None
+
     # Apply modifications and deletions to matched paragraphs
     for ac in active_changes:
         ct = ac.change.change_type
@@ -251,6 +263,10 @@ def generate_redline_docx(
             original_text = doc_paragraphs[idx].text
             _clear_paragraph(doc_paragraphs[idx])
             _add_formatted_run(doc_paragraphs[idx], original_text, RED, strikethrough=True)
+            # Record for possible inline pairing with a same-section addition
+            top = _top_section(ac.change.section_context)
+            if top:
+                deletion_para_by_section[top] = doc_paragraphs[idx]
         else:
             # MODIFICATION, MOVE, FORMAT_ONLY
             _apply_inline_redline(
@@ -269,6 +285,18 @@ def generate_redline_docx(
 
     for ac in active_changes:
         if ac.change.change_type != ChangeType.ADDITION:
+            continue
+
+        # P1: If a deletion in the same top-level section was already rendered,
+        # append the addition inline to that paragraph so the change appears as
+        # a single inline redline rather than two separate paragraphs.
+        top = _top_section(ac.change.section_context)
+        if top and top in deletion_para_by_section:
+            del_para = deletion_para_by_section[top]
+            _add_formatted_run(del_para, " ", BLUE)
+            _add_formatted_run(del_para, ac.change.modified_text or "", BLUE, underline=True)
+            if options.include_ai_summaries and ac.ai_summary:
+                _add_comment(doc, del_para, ac.ai_summary.summary)
             continue
 
         # Determine which section number this addition belongs to
