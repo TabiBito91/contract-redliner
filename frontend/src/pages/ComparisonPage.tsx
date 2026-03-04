@@ -9,7 +9,7 @@ import type {
 } from "@/types/api";
 import DiffViewer from "@/components/DiffViewer";
 import ChangeDetailPanel from "@/components/ChangeDetailPanel";
-import { Check, ChevronLeft, ChevronRight, Download } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Download, Loader2 } from "lucide-react";
 
 export default function ComparisonPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -155,14 +155,25 @@ export default function ComparisonPage() {
           <div className="flex items-center">
             {stages.map((s, i) => (
               <div key={i} className="flex items-center">
-                <div className={`
-                  w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold
-                  transition-all duration-500
-                  ${s.isDone    ? "bg-addition text-white" : ""}
-                  ${s.isActive  ? "border-2 border-addition text-addition ring-4 ring-addition/20" : ""}
-                  ${s.isPending ? "border-2 border-border text-text-secondary" : ""}
-                `}>
-                  {s.isDone ? <Check className="w-4 h-4" strokeWidth={3} /> : i + 1}
+                {/* P4: relative wrapper so ping ring is positioned against the circle */}
+                <div className="relative flex items-center justify-center">
+                  {s.isActive && (
+                    <div className="absolute w-9 h-9 rounded-full bg-addition/25 animate-ping" />
+                  )}
+                  <div className={`
+                    w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold
+                    transition-all duration-500 relative z-10
+                    ${s.isDone    ? "bg-addition text-white" : ""}
+                    ${s.isActive  ? "border-2 border-addition text-addition" : ""}
+                    ${s.isPending ? "border-2 border-border text-text-secondary" : ""}
+                  `}>
+                    {/* P2: spinner for active stage, check for done, number for pending */}
+                    {s.isDone
+                      ? <Check className="w-4 h-4" strokeWidth={3} />
+                      : s.isActive
+                        ? <Loader2 className="w-4 h-4 animate-spin" />
+                        : i + 1}
+                  </div>
                 </div>
                 {i < stages.length - 1 && (
                   <div className="w-12 h-px bg-border relative">
@@ -193,10 +204,13 @@ export default function ComparisonPage() {
         {/* Overall progress bar */}
         <div className="w-72 flex flex-col gap-1.5">
           <div className="bg-border rounded-full h-1.5 overflow-hidden">
+            {/* P1: relative+overflow-hidden on fill so shimmer is clipped to the filled region */}
             <div
-              className="bg-addition h-full rounded-full transition-all duration-700"
+              className="bg-addition h-full rounded-full transition-all duration-700 relative overflow-hidden"
               style={{ width: `${progress}%` }}
-            />
+            >
+              <div className="shimmer-overlay absolute inset-0" />
+            </div>
           </div>
           <div className="flex justify-between text-xs text-text-secondary">
             <span>{activeStage?.label ?? "Starting…"}</span>

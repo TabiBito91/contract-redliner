@@ -26,3 +26,13 @@ body {
   color: var(--color-text-primary);
   background: var(--color-surface);
 }
+
+@keyframes shimmer {
+  0%   { transform: translateX(-200%); }
+  100% { transform: translateX(200%); }
+}
+
+.shimmer-overlay {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+  animation: shimmer 1.5s ease-in-out infinite;
+}
