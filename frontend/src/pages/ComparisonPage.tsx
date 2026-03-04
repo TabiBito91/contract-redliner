@@ -56,9 +56,18 @@ export default function ComparisonPage() {
     result?.version_comparisons[activeVersionIdx] ?? null;
 
   const filteredChanges: AnnotatedChange[] = activeComparison
-    ? activeComparison.changes.filter(
-        (ac) => !showSubstantiveOnly || ac.change.is_substantive
-      )
+    ? activeComparison.changes
+        .filter((ac) => !showSubstantiveOnly || ac.change.is_substantive)
+        .sort((a, b) => {
+          const toKey = (ctx: string | null | undefined): [number, number, string] => {
+            const s = ctx ?? "";
+            const n = parseFloat(s);
+            return isNaN(n) ? [1, 0, s] : [0, n, s];
+          };
+          const [at, an, as_] = toKey(a.change.section_context);
+          const [bt, bn, bs] = toKey(b.change.section_context);
+          return at !== bt ? at - bt : an !== bn ? an - bn : as_.localeCompare(bs);
+        })
     : [];
 
   const selectedChange =

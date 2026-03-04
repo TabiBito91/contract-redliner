@@ -390,4 +390,16 @@ def compare_documents(
                 modified_paragraph_id=mp.heading.id if mp.heading else (mp.body[0].id if mp.body else None),
             ))
 
+    # Sort into document section-number order.
+    # Numeric contexts (e.g. "3", "10", "12.11") sort before non-numeric heading
+    # texts, which fall back to alphabetical order.  Python's sort is stable so
+    # changes that share the same section_context keep their relative order.
+    def _section_sort_key(c: DiffChange) -> tuple:
+        ctx = c.section_context or ""
+        try:
+            return (0, float(ctx), ctx)
+        except (ValueError, TypeError):
+            return (1, 0.0, ctx)
+
+    changes.sort(key=_section_sort_key)
     return changes
