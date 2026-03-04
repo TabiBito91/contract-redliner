@@ -120,6 +120,25 @@ def _strip_section_number(text: str) -> str:
     return _SECTION_NUM_RE.sub("", text).strip()
 
 
+def _section_label(section_num: str | None, heading_text: str | None) -> str | None:
+    """Build a display label from a section number and heading text.
+
+    Combines both where available so that distinct provisions with the same
+    section number (e.g. the original §10 and a newly-added §10) produce
+    distinct labels and are never incorrectly grouped together.
+
+    Examples:
+        ("10", "10. No Assignment")      -> "10. No Assignment"
+        ("11", "11. Governing Law")      -> "11. Governing Law"
+        (None, "Confidential Info")      -> "Confidential Info"
+        ("3",  None)                     -> "3"
+    """
+    heading_clean = _strip_section_number(heading_text or "")
+    if section_num and heading_clean:
+        return f"{section_num}. {heading_clean}"
+    return section_num or heading_text or None
+
+
 # --- Similarity ---
 
 def _similarity(a: str, b: str) -> float:
@@ -278,7 +297,10 @@ def compare_documents(
     for m in matches:
         op = orig_provs[m.orig_idx]
         mp = mod_provs[m.mod_idx]
-        section = op.section_number or mp.section_number or op.heading_text
+        section = _section_label(
+            mp.section_number or op.section_number,
+            mp.heading_text or op.heading_text,
+        )
 
         # Compare headings
         if op.heading_text and mp.heading_text and op.heading_text != mp.heading_text:
@@ -376,7 +398,7 @@ def compare_documents(
             changes.append(DiffChange(
                 change_type=ChangeType.DELETION,
                 original_text=op.full_text,
-                section_context=op.section_number or op.heading_text,
+                section_context=_section_label(op.section_number, op.heading_text),
                 original_paragraph_id=op.heading.id if op.heading else (op.body[0].id if op.body else None),
             ))
 
@@ -386,7 +408,7 @@ def compare_documents(
             changes.append(DiffChange(
                 change_type=ChangeType.ADDITION,
                 modified_text=mp.full_text,
-                section_context=mp.section_number or mp.heading_text,
+                section_context=_section_label(mp.section_number, mp.heading_text),
                 modified_paragraph_id=mp.heading.id if mp.heading else (mp.body[0].id if mp.body else None),
             ))
 
@@ -396,10 +418,10 @@ def compare_documents(
     # changes that share the same section_context keep their relative order.
     def _section_sort_key(c: DiffChange) -> tuple:
         ctx = c.section_context or ""
-        try:
-            return (0, float(ctx), ctx)
-        except (ValueError, TypeError):
-            return (1, 0.0, ctx)
+        m = re.match(r"^(\d+(?:\.\d+)*)", ctx)
+        if m:
+            return (0, float(m.group(1)), ctx)
+        return (1, 0.0, ctx)
 
     changes.sort(key=_section_sort_key)
     return changes
