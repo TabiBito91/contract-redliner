@@ -8,7 +8,7 @@ import json
 import logging
 from uuid import UUID
 
-from anthropic import Anthropic, APIError
+from anthropic import AsyncAnthropic, APIError
 
 from app.core.config import settings
 from app.models.schemas import (
@@ -160,13 +160,13 @@ ANALYSIS_TOOL = {
 }
 
 
-def _get_client(api_key: str | None = None) -> Anthropic | None:
+def _get_client(api_key: str | None = None) -> AsyncAnthropic | None:
     """Get Anthropic client using the provided key, falling back to settings."""
     key = api_key or settings.anthropic_api_key
     if not key:
         logger.warning("No Anthropic API key available. AI analysis disabled.")
         return None
-    return Anthropic(api_key=key)
+    return AsyncAnthropic(api_key=key)
 
 
 async def analyze_changes(
@@ -208,7 +208,7 @@ async def analyze_changes(
     )
 
     try:
-        response = client.messages.create(
+        response = await client.messages.create(
             model=model or settings.llm_model,
             max_tokens=8192,
             system=[

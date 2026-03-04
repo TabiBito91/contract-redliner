@@ -308,7 +308,7 @@ def compare_documents(
                             change_type=ChangeType.MOVE,
                             original_text=orig_body[k],
                             modified_text=mod_body[k - i1 + j1],
-                            section_context=section,
+                            section_context=op.body[k].section_number or section,
                             is_move=True,
                             original_paragraph_id=op.body[k].id,
                             modified_paragraph_id=mp.body[k - i1 + j1].id,
@@ -320,7 +320,7 @@ def compare_documents(
                     changes.append(DiffChange(
                         change_type=ChangeType.DELETION,
                         original_text=orig_body[k],
-                        section_context=section,
+                        section_context=op.body[k].section_number or section,
                         original_paragraph_id=op.body[k].id,
                     ))
 
@@ -329,7 +329,7 @@ def compare_documents(
                     changes.append(DiffChange(
                         change_type=ChangeType.ADDITION,
                         modified_text=mod_body[k],
-                        section_context=section,
+                        section_context=mp.body[k].section_number or section,
                         modified_paragraph_id=mp.body[k].id,
                     ))
 
@@ -338,11 +338,16 @@ def compare_documents(
                 for k in range(pairs):
                     orig_t = orig_body[i1 + k]
                     mod_t = mod_body[j1 + k]
+                    para_section = (
+                        op.body[i1 + k].section_number
+                        or mp.body[j1 + k].section_number
+                        or section
+                    )
                     changes.append(DiffChange(
                         change_type=ChangeType.MODIFICATION,
                         original_text=orig_t,
                         modified_text=mod_t,
-                        section_context=section,
+                        section_context=para_section,
                         is_move=m.is_move,
                         inline_diffs=compute_inline_diffs(orig_t, mod_t),
                         similarity=round(_similarity(orig_t, mod_t), 3),
@@ -354,14 +359,14 @@ def compare_documents(
                     changes.append(DiffChange(
                         change_type=ChangeType.DELETION,
                         original_text=orig_body[i1 + k],
-                        section_context=section,
+                        section_context=op.body[i1 + k].section_number or section,
                         original_paragraph_id=op.body[i1 + k].id,
                     ))
                 for k in range(pairs, j2 - j1):
                     changes.append(DiffChange(
                         change_type=ChangeType.ADDITION,
                         modified_text=mod_body[j1 + k],
-                        section_context=section,
+                        section_context=mp.body[j1 + k].section_number or section,
                         modified_paragraph_id=mp.body[j1 + k].id,
                     ))
 

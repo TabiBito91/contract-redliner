@@ -9,7 +9,7 @@ import type {
 } from "@/types/api";
 import DiffViewer from "@/components/DiffViewer";
 import ChangeDetailPanel from "@/components/ChangeDetailPanel";
-import { ChevronLeft, ChevronRight, Download, Loader2 } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Download } from "lucide-react";
 
 export default function ComparisonPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -111,22 +111,76 @@ export default function ComparisonPage() {
 
   // Loading state
   if (!session || (session.status !== "complete" && session.status !== "error")) {
+    const progress = session?.progress ?? 0;
+
+    const stages = [
+      { label: "Parsing & Diffing", min: 0,  max: 80  },
+      { label: "AI Analysis",       min: 80, max: 95  },
+      { label: "Finalizing",        min: 95, max: 100 },
+    ].map((s) => ({
+      ...s,
+      isDone:    progress >= s.max,
+      isActive:  progress >= s.min && progress < s.max,
+      isPending: progress < s.min,
+    }));
+
+    const activeStage = stages.find((s) => s.isActive);
+
     return (
-      <div className="flex flex-col items-center justify-center h-[70vh] gap-4">
-        <Loader2 className="w-8 h-8 text-addition animate-spin" />
-        <p className="text-text-secondary font-medium">
-          {session?.status === "analyzing"
-            ? "Generating AI summaries..."
-            : "Comparing documents..."}
-        </p>
-        {session && (
-          <div className="w-64 bg-border rounded-full h-2 overflow-hidden">
+      <div className="flex flex-col items-center justify-center h-[70vh] gap-10">
+        <div className="flex flex-col items-center gap-3">
+          {/* Circles + connectors */}
+          <div className="flex items-center">
+            {stages.map((s, i) => (
+              <div key={i} className="flex items-center">
+                <div className={`
+                  w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold
+                  transition-all duration-500
+                  ${s.isDone    ? "bg-addition text-white" : ""}
+                  ${s.isActive  ? "border-2 border-addition text-addition ring-4 ring-addition/20" : ""}
+                  ${s.isPending ? "border-2 border-border text-text-secondary" : ""}
+                `}>
+                  {s.isDone ? <Check className="w-4 h-4" strokeWidth={3} /> : i + 1}
+                </div>
+                {i < stages.length - 1 && (
+                  <div className="w-12 h-px bg-border relative">
+                    <div className={`absolute inset-0 bg-addition transition-all duration-700 ${s.isDone ? "w-full" : "w-0"}`} />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          {/* Labels */}
+          <div className="flex items-start">
+            {stages.map((s, i) => (
+              <div key={i} className="flex items-start">
+                <div className={`
+                  w-28 text-center text-xs leading-tight transition-colors duration-500
+                  ${s.isActive  ? "text-text-primary font-medium" : ""}
+                  ${s.isDone    ? "text-text-primary" : ""}
+                  ${s.isPending ? "text-text-secondary" : ""}
+                `}>
+                  {s.label}
+                </div>
+                {i < stages.length - 1 && <div className="w-12 shrink-0" />}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Overall progress bar */}
+        <div className="w-72 flex flex-col gap-1.5">
+          <div className="bg-border rounded-full h-1.5 overflow-hidden">
             <div
-              className="bg-addition h-full transition-all duration-500"
-              style={{ width: `${session.progress}%` }}
+              className="bg-addition h-full rounded-full transition-all duration-700"
+              style={{ width: `${progress}%` }}
             />
           </div>
-        )}
+          <div className="flex justify-between text-xs text-text-secondary">
+            <span>{activeStage?.label ?? "Starting…"}</span>
+            <span>{Math.round(progress)}%</span>
+          </div>
+        </div>
       </div>
     );
   }

@@ -1,5 +1,6 @@
 """Comparison session API routes - full pipeline wired."""
 
+import asyncio
 import logging
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
@@ -212,8 +213,11 @@ async def _execute_comparison(session_id: UUID, api_key: str | None = None):
 
         # AI analysis pass (for all version comparisons)
         session.status = SessionStatus.ANALYZING
-        for i, vc in enumerate(version_comparisons):
-            # Collect DiffChanges for AI analysis
+        session.progress = 80.0
+
+        # Build change lists for each version comparison upfront
+        all_diff_changes_for_ai = []
+        for vc in version_comparisons:
             diff_changes_for_ai = []
             for ac in vc.changes:
                 c = ac.change
@@ -225,21 +229,24 @@ async def _execute_comparison(session_id: UUID, api_key: str | None = None):
                     is_move=False,
                     is_heading=False,
                 ))
+            all_diff_changes_for_ai.append(diff_changes_for_ai)
 
-            ai_results = await analyze_changes(
-                diff_changes_for_ai, session.reviewing_party, api_key=api_key
-            )
+        # Fan out all AI calls in parallel
+        ai_results_list = await asyncio.gather(*[
+            analyze_changes(diff_changes, session.reviewing_party, api_key=api_key)
+            for diff_changes in all_diff_changes_for_ai
+        ])
 
+        # Merge AI results back into each version comparison
+        for i, (vc, ai_results, diff_changes_for_ai) in enumerate(
+            zip(version_comparisons, ai_results_list, all_diff_changes_for_ai)
+        ):
             if ai_results:
-                # Re-build annotated changes with AI results
                 annotated = build_annotated_changes(
                     diff_changes_for_ai, ai_results,
                     session.reviewing_party, vc.version_label
                 )
-                # Merge AI data back into existing changes
-                ai_map = {a.change.id: a for a in annotated if a.ai_summary}
                 for j, ac in enumerate(vc.changes):
-                    # Match by index since IDs differ
                     if j < len(annotated) and annotated[j].ai_summary:
                         ac.ai_summary = annotated[j].ai_summary
                         ac.risk_assessment = annotated[j].risk_assessment

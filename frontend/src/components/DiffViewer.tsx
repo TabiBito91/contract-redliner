@@ -141,47 +141,108 @@ function InlineView({
   onSelectChange: (idx: number) => void;
   selectedRef: React.RefObject<HTMLDivElement | null>;
 }) {
+  // Group consecutive changes that share the same section_context
+  type Group = { sectionContext: string | null; items: Array<{ ac: AnnotatedChange; flatIdx: number }> };
+  const groups: Group[] = [];
+  changes.forEach((ac, flatIdx) => {
+    const ctx = ac.change.section_context ?? null;
+    const last = groups[groups.length - 1];
+    if (last && last.sectionContext === ctx) {
+      last.items.push({ ac, flatIdx });
+    } else {
+      groups.push({ sectionContext: ctx, items: [{ ac, flatIdx }] });
+    }
+  });
+
   return (
-    <div className="max-w-4xl mx-auto px-6 py-4 space-y-1">
-      {changes.map((ac, idx) => {
-        const c = ac.change;
-        const isSelected = idx === selectedIdx;
+    <div className="max-w-4xl mx-auto px-6 py-4">
+      {groups.map((group, gi) => {
+        const prevCtx = gi > 0 ? groups[gi - 1].sectionContext : null;
+        const gapLabel = getGapLabel(prevCtx, group.sectionContext);
+        // Only add top margin when there's no gap label already providing spacing
+        const headerTopClass = gi === 0 ? "" : gapLabel ? "" : "mt-5";
 
         return (
-          <div
-            key={c.id}
-            ref={isSelected ? selectedRef : undefined}
-            onClick={() => onSelectChange(idx)}
-            className={`
-              px-4 py-2 rounded-lg cursor-pointer transition-colors
-              ${isSelected ? "ring-2 ring-addition" : "hover:bg-surface-secondary"}
-            `}
-          >
-            {c.section_context && (
-              <span className="text-xs text-text-secondary font-mono mr-2">
-                [{c.section_context}]
-              </span>
+          <div key={`group-${gi}`}>
+            {/* P2: Unchanged sections separator */}
+            {gapLabel && (
+              <div className="flex items-center gap-3 my-4">
+                <div className="flex-1 border-t border-dashed border-border" />
+                <span className="text-xs text-text-secondary shrink-0">{gapLabel}</span>
+                <div className="flex-1 border-t border-dashed border-border" />
+              </div>
             )}
-            {c.change_type === "deletion" && (
-              <span className="text-deletion line-through">{c.original_text}</span>
+
+            {/* P1: Section header */}
+            {group.sectionContext && (
+              <div className={`flex items-center gap-2 mb-1 ${headerTopClass}`}>
+                <span className="text-xs font-mono font-semibold text-text-secondary bg-surface-secondary px-2 py-0.5 rounded shrink-0">
+                  § {group.sectionContext}
+                </span>
+                <div className="flex-1 h-px bg-border" />
+              </div>
             )}
-            {c.change_type === "addition" && (
-              <span className="text-addition underline">{c.modified_text}</span>
-            )}
-            {c.change_type === "modification" && (
-              <InlineDiffSpans original={c.original_text || ""} modified={c.modified_text || ""} />
-            )}
-            {c.change_type === "move" && (
-              <span className="text-move italic">[Moved] {c.original_text}</span>
-            )}
-            {ac.risk_assessment && (
-              <RiskBadge severity={ac.risk_assessment.severity} className="ml-2 inline-flex" />
-            )}
+
+            {/* Changes within this section */}
+            <div className="space-y-1">
+              {group.items.map(({ ac, flatIdx }) => {
+                const c = ac.change;
+                const isSelected = flatIdx === selectedIdx;
+                return (
+                  <div
+                    key={c.id}
+                    ref={isSelected ? selectedRef : undefined}
+                    onClick={() => onSelectChange(flatIdx)}
+                    className={`
+                      px-4 py-2 rounded-lg cursor-pointer transition-colors
+                      ${isSelected ? "ring-2 ring-addition" : "hover:bg-surface-secondary"}
+                    `}
+                  >
+                    {c.change_type === "deletion" && (
+                      <span className="text-deletion line-through">{c.original_text}</span>
+                    )}
+                    {c.change_type === "addition" && (
+                      <span className="text-addition underline">{c.modified_text}</span>
+                    )}
+                    {c.change_type === "modification" && (
+                      <InlineDiffSpans original={c.original_text || ""} modified={c.modified_text || ""} />
+                    )}
+                    {c.change_type === "move" && (
+                      <span className="text-move italic">[Moved] {c.original_text}</span>
+                    )}
+                    {ac.risk_assessment && (
+                      <RiskBadge severity={ac.risk_assessment.severity} className="ml-2 inline-flex" />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         );
       })}
     </div>
   );
+}
+
+/**
+ * Returns a label like "Section 3 unchanged" or "Sections 3–4 unchanged" when
+ * numeric section_context values have a top-level gap greater than 1.
+ * Returns null when sections are adjacent, within the same top-level section,
+ * or when either context is non-numeric.
+ */
+function getGapLabel(prevCtx: string | null, currCtx: string | null): string | null {
+  if (!prevCtx || !currCtx) return null;
+
+  const prevNum = parseFloat(prevCtx);
+  const currNum = parseFloat(currCtx);
+  if (isNaN(prevNum) || isNaN(currNum)) return null;
+
+  const prevTop = Math.floor(prevNum);
+  const currTop = Math.floor(currNum);
+  if (currTop <= prevTop + 1) return null;
+
+  if (currTop === prevTop + 2) return `Section ${prevTop + 1} unchanged`;
+  return `Sections ${prevTop + 1}–${currTop - 1} unchanged`;
 }
 
 /* ---------- Helpers ---------- */
