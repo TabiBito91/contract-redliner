@@ -214,42 +214,42 @@ class DocxParser(DocumentParser):
         return None, None
 
 
-class PdfParser(DocumentParser):
-    """Parser for .pdf files using PyMuPDF (fitz).
+# ---------------------------------------------------------------------------
+# Shared PDF utilities — used by both PdfParser and the export generator so
+# that paragraph text is always extracted and normalised identically.
+# ---------------------------------------------------------------------------
 
-    Extracts text line-by-line with font-size and bold metadata, then
-    classifies headings using a body-size median heuristic.
+def _normalize_pdf_text(text: str) -> str:
+    """Normalise PDF-extracted text: remove artifacts, expand ligatures."""
+    text = text.replace("\u00ad", "")                          # soft hyphen
+    text = re.sub(r"[ \t\xa0\u2009\u200a]+", " ", text).strip()  # whitespace variants
+    text = (text                                                # common ligatures
+            .replace("\ufb00", "ff")
+            .replace("\ufb01", "fi")
+            .replace("\ufb02", "fl")
+            .replace("\ufb03", "ffi")
+            .replace("\ufb04", "ffl"))
+    text = text.replace("\u2018", "'").replace("\u2019", "'")  # quotes
+    text = text.replace("\u201c", '"').replace("\u201d", '"')
+    text = text.replace("\u2013", "-").replace("\u2014", "-")  # dashes
+    return text
+
+
+def _pdf_extract_blocks(pdf_path: Path) -> list[tuple[str, float, bool]]:
+    """Extract block-level text from a PDF with font metadata.
+
+    Each PyMuPDF block corresponds to one visual paragraph.  Lines within
+    a block are joined into a single string and normalised with
+    _normalize_pdf_text, so consumers always see the same text regardless
+    of whether they are parsing for diffing or building an export document.
+
+    Returns: list of (block_text, max_font_size, is_bold)
     """
+    import fitz  # PyMuPDF — lazy import
 
-    _section_number_re = re.compile(r"^(\d+(?:\.\d+)*\.?)\s")
-
-    def supports(self, file_path: Path) -> bool:
-        return file_path.suffix.lower() == ".pdf"
-
-    def parse(self, file_path: Path, document_id: UUID) -> ParsedDocument:
-        import fitz  # PyMuPDF — lazy import so missing dep only fails on PDF use
-
-        pdf = fitz.open(str(file_path))
-        try:
-            paragraphs = self._extract_paragraphs(pdf)
-        finally:
-            pdf.close()
-
-        return ParsedDocument(
-            document_id=document_id,
-            paragraphs=paragraphs,
-            tables=[],
-            headers=[],
-            footers=[],
-            footnotes=[],
-        )
-
-    def _extract_paragraphs(self, pdf) -> list[DocumentParagraph]:
-        # Pass 1: collect one entry per PDF block (visual paragraph grouping).
-        # Lines within a block are joined into a single string so that wrapped
-        # body text is treated as one paragraph — matching DOCX granularity.
-        raw_blocks: list[tuple[str, float, bool]] = []  # (text, max_size, is_bold)
-
+    blocks: list[tuple[str, float, bool]] = []
+    pdf = fitz.open(str(pdf_path))
+    try:
         for page in pdf:
             for block in page.get_text("dict")["blocks"]:
                 if block.get("type") != 0:  # skip image blocks
@@ -263,7 +263,7 @@ class PdfParser(DocumentParser):
                     spans = line.get("spans", [])
                     if not spans:
                         continue
-                    line_text = self._normalize_text("".join(s["text"] for s in spans))
+                    line_text = _normalize_pdf_text("".join(s["text"] for s in spans))
                     if not line_text:
                         continue
                     parts.append(line_text)
@@ -274,26 +274,55 @@ class PdfParser(DocumentParser):
                 if not parts:
                     continue
 
-                # Join wrapped lines into one paragraph, then re-normalize
-                block_text = self._normalize_text(" ".join(parts))
+                block_text = _normalize_pdf_text(" ".join(parts))
                 if block_text:
-                    raw_blocks.append((block_text, max(sizes), bold))
+                    blocks.append((block_text, max(sizes), bold))
+    finally:
+        pdf.close()
 
+    return blocks
+
+
+class PdfParser(DocumentParser):
+    """Parser for .pdf files using PyMuPDF (fitz).
+
+    Text extraction is delegated to the shared _pdf_extract_blocks utility
+    so that the export generator always sees identical paragraph text.
+    """
+
+    _section_number_re = re.compile(r"^(\d+(?:\.\d+)*\.?)\s")
+
+    def supports(self, file_path: Path) -> bool:
+        return file_path.suffix.lower() == ".pdf"
+
+    def parse(self, file_path: Path, document_id: UUID) -> ParsedDocument:
+        raw_blocks = _pdf_extract_blocks(file_path)
+        paragraphs = self._classify_paragraphs(raw_blocks)
+        return ParsedDocument(
+            document_id=document_id,
+            paragraphs=paragraphs,
+            tables=[],
+            headers=[],
+            footers=[],
+            footnotes=[],
+        )
+
+    def _classify_paragraphs(
+        self, raw_blocks: list[tuple[str, float, bool]]
+    ) -> list[DocumentParagraph]:
+        """Classify pre-extracted blocks into headings and body paragraphs."""
         if not raw_blocks:
             return []
 
-        # Body font size = median across all blocks (filters large headings + footnotes)
+        # Body font size = median (filters large headings + small footnotes)
         all_sizes = sorted(size for _, size, _ in raw_blocks)
         body_size = all_sizes[len(all_sizes) // 2]
 
-        # Pass 2: classify each block as heading or body paragraph
         paragraphs: list[DocumentParagraph] = []
         current_section: str | None = None
-        idx = 0
 
-        for text, size, bold in raw_blocks:
+        for idx, (text, size, bold) in enumerate(raw_blocks):
             has_num = bool(self._section_number_re.match(text))
-            # Heading: (larger font OR bold) AND (numbered OR short title)
             is_heading = (size > body_size * 1.12 or bold) and (has_num or len(text) < 80)
             section_num = self._extract_section_number(text)
 
@@ -317,27 +346,8 @@ class PdfParser(DocumentParser):
                     style_name=None,
                     parent_section=current_section,
                 ))
-            idx += 1
 
         return paragraphs
-
-    def _normalize_text(self, text: str) -> str:
-        # P3: remove soft hyphens (U+00AD) — PDF line-break artifacts
-        text = text.replace("\u00ad", "")
-        # P3: normalize all whitespace variants (non-breaking space, thin space, etc.)
-        text = re.sub(r"[ \t\xa0\u2009\u200a]+", " ", text).strip()
-        # P3: expand common ligature glyphs embedded by PDF renderers
-        text = (text
-                .replace("\ufb00", "ff")
-                .replace("\ufb01", "fi")
-                .replace("\ufb02", "fl")
-                .replace("\ufb03", "ffi")
-                .replace("\ufb04", "ffl"))
-        # Standard quote / dash normalization (same as DocxParser)
-        text = text.replace("\u2018", "'").replace("\u2019", "'")
-        text = text.replace("\u201c", '"').replace("\u201d", '"')
-        text = text.replace("\u2013", "-").replace("\u2014", "-")
-        return text
 
     def _extract_section_number(self, text: str) -> str | None:
         m = self._section_number_re.match(text)

@@ -117,8 +117,14 @@ def _build_section_end_map(doc_paragraphs) -> dict[float, int]:
     return section_map
 
 
-def _match_para_index(doc_paragraphs, original_text: str) -> int | None:
-    """Find the best matching paragraph index in the DOCX by text content."""
+def _match_para_index(
+    doc_paragraphs, original_text: str, threshold: float = 0.8
+) -> int | None:
+    """Find the best matching paragraph index in the DOCX by text content.
+
+    threshold: minimum SequenceMatcher ratio to accept a match.  Use 0.65
+    for PDF-derived documents where minor encoding differences are expected.
+    """
     if not original_text:
         return None
     norm_orig = _normalize_ws(original_text)
@@ -141,7 +147,7 @@ def _match_para_index(doc_paragraphs, original_text: str) -> int | None:
             best_ratio = ratio
             best_idx = i
 
-    return best_idx if best_ratio > 0.8 else None
+    return best_idx if best_ratio > threshold else None
 
 
 def _clear_paragraph(para):
@@ -177,25 +183,15 @@ def _apply_inline_redline(para, original_text: str, modified_text: str):
 def _build_doc_from_pdf(original_path: Path) -> Document:
     """Convert a PDF to a plain python-docx Document for redline export.
 
-    Extracts text line-by-line (matching PdfParser's output) so that the
-    fuzzy paragraph matcher can locate and annotate the right paragraphs.
+    Uses the shared _pdf_extract_blocks utility (same as PdfParser) so that
+    paragraph texts match annotated_changes.original_text exactly, allowing
+    _match_para_index to find deletions and modifications reliably.
     """
-    import fitz
+    from app.services.parser import _pdf_extract_blocks
 
     doc = Document()
-    pdf = fitz.open(str(original_path))
-    try:
-        for page in pdf:
-            for block in page.get_text("blocks"):
-                # block tuple: (x0, y0, x1, y1, text, block_no, block_type)
-                if block[6] != 0:  # skip non-text blocks
-                    continue
-                for line in block[4].splitlines():
-                    line = line.strip()
-                    if line:
-                        doc.add_paragraph(line)
-    finally:
-        pdf.close()
+    for text, _, _ in _pdf_extract_blocks(original_path):
+        doc.add_paragraph(text)
     return doc
 
 
@@ -222,8 +218,10 @@ def generate_redline_docx(
     """
     if original_path.suffix.lower() == ".pdf":
         doc = _build_doc_from_pdf(original_path)
+        match_threshold = 0.65  # P3: PDF text may differ slightly from parsed text
     else:
         doc = Document(str(original_path))
+        match_threshold = 0.8
 
     # Filter changes based on options
     active_changes: list[AnnotatedChange] = []
@@ -244,7 +242,7 @@ def generate_redline_docx(
         if ct == ChangeType.ADDITION:
             continue
 
-        idx = _match_para_index(doc_paragraphs, ac.change.original_text)
+        idx = _match_para_index(doc_paragraphs, ac.change.original_text, match_threshold)
         if idx is None or idx in used_indices:
             continue
         used_indices.add(idx)
