@@ -89,6 +89,8 @@ def _build_changes_context(changes: list[DiffChange]) -> str:
 
 
 # Tool schema for structured output
+# cache_control marks this as cacheable so Anthropic reuses the processed
+# schema across calls within the same cache window (P2).
 ANALYSIS_TOOL = {
     "name": "submit_analysis",
     "description": "Submit the complete analysis of all document changes.",
@@ -129,7 +131,7 @@ ANALYSIS_TOOL = {
                         },
                         "risk_explanation": {
                             "type": "string",
-                            "description": "2-4 sentence explanation of the risk from the reviewing party's perspective.",
+                            "description": "1-2 sentence explanation of the risk from the reviewing party's perspective.",
                         },
                         "recommendation": {
                             "type": "string",
@@ -157,6 +159,7 @@ ANALYSIS_TOOL = {
         },
         "required": ["changes"],
     },
+    "cache_control": {"type": "ephemeral"},
 }
 
 

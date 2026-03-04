@@ -18,7 +18,7 @@ class Settings(BaseSettings):
 
     # AI / LLM
     anthropic_api_key: str = ""
-    llm_model: str = "claude-sonnet-4-5-20250929"
+    llm_model: str = "claude-haiku-4-5-20251001"
 
     # Server
     host: str = "0.0.0.0"
