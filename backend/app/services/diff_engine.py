@@ -418,6 +418,9 @@ def compare_documents(
     # changes that share the same section_context keep their relative order.
     def _section_sort_key(c: DiffChange) -> tuple:
         ctx = c.section_context or ""
+        if not ctx:
+            # No section context = preamble/title; sort before everything else
+            return (-1, 0.0, "")
         m = re.match(r"^(\d+(?:\.\d+)*)", ctx)
         if m:
             return (0, float(m.group(1)), ctx)

@@ -245,38 +245,55 @@ class PdfParser(DocumentParser):
         )
 
     def _extract_paragraphs(self, pdf) -> list[DocumentParagraph]:
-        # Pass 1: collect every visible text line with its max font size and bold flag
-        raw: list[tuple[str, float, bool]] = []  # (text, size, is_bold)
+        # Pass 1: collect one entry per PDF block (visual paragraph grouping).
+        # Lines within a block are joined into a single string so that wrapped
+        # body text is treated as one paragraph — matching DOCX granularity.
+        raw_blocks: list[tuple[str, float, bool]] = []  # (text, max_size, is_bold)
+
         for page in pdf:
             for block in page.get_text("dict")["blocks"]:
                 if block.get("type") != 0:  # skip image blocks
                     continue
+
+                parts: list[str] = []
+                sizes: list[float] = []
+                bold = False
+
                 for line in block["lines"]:
                     spans = line.get("spans", [])
                     if not spans:
                         continue
-                    text = self._normalize_text("".join(s["text"] for s in spans))
-                    if not text:
+                    line_text = self._normalize_text("".join(s["text"] for s in spans))
+                    if not line_text:
                         continue
-                    size = max(s["size"] for s in spans)
-                    bold = any(s["flags"] & 16 for s in spans)  # bold flag = 16
-                    raw.append((text, size, bold))
+                    parts.append(line_text)
+                    sizes.extend(s["size"] for s in spans)
+                    if any(s["flags"] & 16 for s in spans):  # bold flag = 16
+                        bold = True
 
-        if not raw:
+                if not parts:
+                    continue
+
+                # Join wrapped lines into one paragraph, then re-normalize
+                block_text = self._normalize_text(" ".join(parts))
+                if block_text:
+                    raw_blocks.append((block_text, max(sizes), bold))
+
+        if not raw_blocks:
             return []
 
-        # Compute body font size as the median (filters large headings + small footnotes)
-        all_sizes = sorted(size for _, size, _ in raw)
+        # Body font size = median across all blocks (filters large headings + footnotes)
+        all_sizes = sorted(size for _, size, _ in raw_blocks)
         body_size = all_sizes[len(all_sizes) // 2]
 
-        # Pass 2: classify each line as heading or body paragraph
+        # Pass 2: classify each block as heading or body paragraph
         paragraphs: list[DocumentParagraph] = []
         current_section: str | None = None
         idx = 0
 
-        for text, size, bold in raw:
+        for text, size, bold in raw_blocks:
             has_num = bool(self._section_number_re.match(text))
-            # Heading: (larger font OR bold) AND (numbered OR short enough to be a title)
+            # Heading: (larger font OR bold) AND (numbered OR short title)
             is_heading = (size > body_size * 1.12 or bold) and (has_num or len(text) < 80)
             section_num = self._extract_section_number(text)
 
@@ -305,7 +322,18 @@ class PdfParser(DocumentParser):
         return paragraphs
 
     def _normalize_text(self, text: str) -> str:
-        text = re.sub(r"[ \t]+", " ", text).strip()
+        # P3: remove soft hyphens (U+00AD) — PDF line-break artifacts
+        text = text.replace("\u00ad", "")
+        # P3: normalize all whitespace variants (non-breaking space, thin space, etc.)
+        text = re.sub(r"[ \t\xa0\u2009\u200a]+", " ", text).strip()
+        # P3: expand common ligature glyphs embedded by PDF renderers
+        text = (text
+                .replace("\ufb00", "ff")
+                .replace("\ufb01", "fi")
+                .replace("\ufb02", "fl")
+                .replace("\ufb03", "ffi")
+                .replace("\ufb04", "ffl"))
+        # Standard quote / dash normalization (same as DocxParser)
         text = text.replace("\u2018", "'").replace("\u2019", "'")
         text = text.replace("\u201c", '"').replace("\u201d", '"')
         text = text.replace("\u2013", "-").replace("\u2014", "-")

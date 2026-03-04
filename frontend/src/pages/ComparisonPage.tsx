@@ -61,9 +61,9 @@ export default function ComparisonPage() {
         .filter((ac) => !showSubstantiveOnly || ac.change.is_substantive)
         .sort((a, b) => {
           const toKey = (ctx: string | null | undefined): [number, number, string] => {
-            const s = ctx ?? "";
-            const n = parseFloat(s);
-            return isNaN(n) ? [1, 0, s] : [0, n, s];
+            if (ctx == null || ctx === "") return [-1, 0, ""];
+            const n = parseFloat(ctx);
+            return isNaN(n) ? [1, 0, ctx] : [0, n, ctx];
           };
           const [at, an, as_] = toKey(a.change.section_context);
           const [bt, bn, bs] = toKey(b.change.section_context);
