@@ -7,3 +7,4 @@ pydantic-settings==2.7.1
 websockets==14.1
 aiofiles==24.1.0
 anthropic==0.42.0
+PyMuPDF>=1.23.0

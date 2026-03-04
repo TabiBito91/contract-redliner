@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     upload_dir: Path = Path("uploads")
     max_file_size_mb: int = 50
     max_files_per_session: int = 10
-    allowed_extensions: set[str] = {".docx"}
+    allowed_extensions: set[str] = {".docx", ".pdf"}
 
     # Document processing
     max_pages_per_file: int = 500

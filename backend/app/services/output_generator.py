@@ -174,6 +174,31 @@ def _apply_inline_redline(para, original_text: str, modified_text: str):
             _add_formatted_run(para, modified_text[j1:j2], BLUE, underline=True)
 
 
+def _build_doc_from_pdf(original_path: Path) -> Document:
+    """Convert a PDF to a plain python-docx Document for redline export.
+
+    Extracts text line-by-line (matching PdfParser's output) so that the
+    fuzzy paragraph matcher can locate and annotate the right paragraphs.
+    """
+    import fitz
+
+    doc = Document()
+    pdf = fitz.open(str(original_path))
+    try:
+        for page in pdf:
+            for block in page.get_text("blocks"):
+                # block tuple: (x0, y0, x1, y1, text, block_no, block_type)
+                if block[6] != 0:  # skip non-text blocks
+                    continue
+                for line in block[4].splitlines():
+                    line = line.strip()
+                    if line:
+                        doc.add_paragraph(line)
+    finally:
+        pdf.close()
+    return doc
+
+
 def generate_redline_docx(
     original_path: Path,
     annotated_changes: list[AnnotatedChange],
@@ -182,10 +207,12 @@ def generate_redline_docx(
 ) -> Path:
     """Generate a redlined DOCX document.
 
-    Clones the original document and inserts change markup inline.
+    For DOCX originals, clones the file and annotates it in place.
+    For PDF originals, extracts the text into a fresh DOCX first, then
+    applies the same annotation logic.
 
     Args:
-        original_path: Path to the original DOCX file.
+        original_path: Path to the original document (DOCX or PDF).
         annotated_changes: Changes with optional AI summaries and risk assessments.
         options: Export configuration toggles.
         output_path: Where to save the output DOCX.
@@ -193,7 +220,10 @@ def generate_redline_docx(
     Returns:
         Path to the generated output file.
     """
-    doc = Document(str(original_path))
+    if original_path.suffix.lower() == ".pdf":
+        doc = _build_doc_from_pdf(original_path)
+    else:
+        doc = Document(str(original_path))
 
     # Filter changes based on options
     active_changes: list[AnnotatedChange] = []

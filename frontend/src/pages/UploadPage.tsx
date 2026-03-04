@@ -40,6 +40,7 @@ export default function UploadPage({ apiKey }: { apiKey?: string }) {
     onDrop,
     accept: {
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
+      "application/pdf": [".pdf"],
     },
     maxFiles: 10,
   });
@@ -90,7 +91,7 @@ export default function UploadPage({ apiKey }: { apiKey?: string }) {
           Compare Documents
         </h1>
         <p className="text-text-secondary">
-          Upload two or more DOCX files to generate an intelligent redline comparison
+          Upload two or more DOCX or PDF files to generate an intelligent redline comparison
           with AI-powered change summaries and risk analysis.
         </p>
       </div>
@@ -116,7 +117,7 @@ export default function UploadPage({ apiKey }: { apiKey?: string }) {
         ) : (
           <>
             <p className="font-medium text-text-primary mb-1">
-              Drag & drop DOCX files here, or click to browse
+              Drag & drop DOCX or PDF files here, or click to browse
             </p>
             <p className="text-sm text-text-secondary">
               Upload 2-10 files, up to 50MB each

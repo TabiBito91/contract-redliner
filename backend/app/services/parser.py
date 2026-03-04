@@ -214,6 +214,108 @@ class DocxParser(DocumentParser):
         return None, None
 
 
+class PdfParser(DocumentParser):
+    """Parser for .pdf files using PyMuPDF (fitz).
+
+    Extracts text line-by-line with font-size and bold metadata, then
+    classifies headings using a body-size median heuristic.
+    """
+
+    _section_number_re = re.compile(r"^(\d+(?:\.\d+)*\.?)\s")
+
+    def supports(self, file_path: Path) -> bool:
+        return file_path.suffix.lower() == ".pdf"
+
+    def parse(self, file_path: Path, document_id: UUID) -> ParsedDocument:
+        import fitz  # PyMuPDF — lazy import so missing dep only fails on PDF use
+
+        pdf = fitz.open(str(file_path))
+        try:
+            paragraphs = self._extract_paragraphs(pdf)
+        finally:
+            pdf.close()
+
+        return ParsedDocument(
+            document_id=document_id,
+            paragraphs=paragraphs,
+            tables=[],
+            headers=[],
+            footers=[],
+            footnotes=[],
+        )
+
+    def _extract_paragraphs(self, pdf) -> list[DocumentParagraph]:
+        # Pass 1: collect every visible text line with its max font size and bold flag
+        raw: list[tuple[str, float, bool]] = []  # (text, size, is_bold)
+        for page in pdf:
+            for block in page.get_text("dict")["blocks"]:
+                if block.get("type") != 0:  # skip image blocks
+                    continue
+                for line in block["lines"]:
+                    spans = line.get("spans", [])
+                    if not spans:
+                        continue
+                    text = self._normalize_text("".join(s["text"] for s in spans))
+                    if not text:
+                        continue
+                    size = max(s["size"] for s in spans)
+                    bold = any(s["flags"] & 16 for s in spans)  # bold flag = 16
+                    raw.append((text, size, bold))
+
+        if not raw:
+            return []
+
+        # Compute body font size as the median (filters large headings + small footnotes)
+        all_sizes = sorted(size for _, size, _ in raw)
+        body_size = all_sizes[len(all_sizes) // 2]
+
+        # Pass 2: classify each line as heading or body paragraph
+        paragraphs: list[DocumentParagraph] = []
+        current_section: str | None = None
+        idx = 0
+
+        for text, size, bold in raw:
+            has_num = bool(self._section_number_re.match(text))
+            # Heading: (larger font OR bold) AND (numbered OR short enough to be a title)
+            is_heading = (size > body_size * 1.12 or bold) and (has_num or len(text) < 80)
+            section_num = self._extract_section_number(text)
+
+            if is_heading:
+                depth = len(section_num.split(".")) if section_num else 1
+                current_section = section_num or text[:50]
+                paragraphs.append(DocumentParagraph(
+                    id=f"p-{idx}",
+                    text=text,
+                    heading_level=min(depth, 9),
+                    section_number=section_num,
+                    style_name="Heading",
+                    parent_section=None,
+                ))
+            else:
+                paragraphs.append(DocumentParagraph(
+                    id=f"p-{idx}",
+                    text=text,
+                    heading_level=None,
+                    section_number=section_num,
+                    style_name=None,
+                    parent_section=current_section,
+                ))
+            idx += 1
+
+        return paragraphs
+
+    def _normalize_text(self, text: str) -> str:
+        text = re.sub(r"[ \t]+", " ", text).strip()
+        text = text.replace("\u2018", "'").replace("\u2019", "'")
+        text = text.replace("\u201c", '"').replace("\u201d", '"')
+        text = text.replace("\u2013", "-").replace("\u2014", "-")
+        return text
+
+    def _extract_section_number(self, text: str) -> str | None:
+        m = self._section_number_re.match(text)
+        return m.group(1).rstrip(".") if m else None
+
+
 class ParserRegistry:
     """Registry of available document parsers (supports Phase 2 extensibility)."""
 
@@ -233,3 +335,4 @@ class ParserRegistry:
 # Global parser registry
 parser_registry = ParserRegistry()
 parser_registry.register(DocxParser())
+parser_registry.register(PdfParser())
