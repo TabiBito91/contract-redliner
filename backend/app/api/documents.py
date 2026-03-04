@@ -1,5 +1,6 @@
 """Document upload and management API routes."""
 
+import asyncio
 import shutil
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -50,11 +51,17 @@ async def upload_document(file: UploadFile = File(...)):
 
     # Convert PDF to DOCX once so every downstream consumer (comparison +
     # export) works from the same file and paragraph texts always match.
+    # Run in a thread so the async event loop stays responsive during conversion.
+    # Use shutil.move instead of Path.rename for cross-filesystem safety on Windows.
     if suffix == ".pdf":
         from app.services.parser import convert_pdf_to_docx
-        tmp_docx = convert_pdf_to_docx(upload_path)
         docx_path = settings.upload_dir / f"{doc_id}.docx"
-        tmp_docx.rename(docx_path)
+
+        def _convert():
+            tmp = convert_pdf_to_docx(upload_path)
+            shutil.move(str(tmp), str(docx_path))
+
+        await asyncio.to_thread(_convert)
         upload_path.unlink(missing_ok=True)  # original PDF no longer needed
         upload_path = docx_path
 
