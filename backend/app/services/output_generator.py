@@ -216,12 +216,20 @@ def generate_redline_docx(
     Returns:
         Path to the generated output file.
     """
-    if original_path.suffix.lower() == ".pdf":
-        doc = _build_doc_from_pdf(original_path)
-        match_threshold = 0.65  # P3: PDF text may differ slightly from parsed text
-    else:
-        doc = Document(str(original_path))
-        match_threshold = 0.8
+    pdf_tmp: Path | None = None
+    try:
+        if original_path.suffix.lower() == ".pdf":
+            from app.services.parser import convert_pdf_to_docx
+            pdf_tmp = convert_pdf_to_docx(original_path)
+            doc = Document(str(pdf_tmp))
+        else:
+            doc = Document(str(original_path))
+    finally:
+        # pdf_tmp will be cleaned up after doc is loaded into memory
+        if pdf_tmp:
+            pdf_tmp.unlink(missing_ok=True)
+
+    match_threshold = 0.8  # both paths now produce DOCX-quality paragraph text
 
     # Filter changes based on options
     active_changes: list[AnnotatedChange] = []

@@ -354,6 +354,28 @@ class PdfParser(DocumentParser):
         return m.group(1).rstrip(".") if m else None
 
 
+def convert_pdf_to_docx(pdf_path: Path) -> Path:
+    """Convert a PDF to a temporary DOCX file using pdf2docx.
+
+    The caller is responsible for deleting the returned file when done.
+    Uses a UUID-suffixed name in the system temp directory to avoid collisions
+    when multiple comparisons run concurrently.
+    """
+    import os
+    import tempfile
+    from pdf2docx import Converter
+
+    fd, tmp_str = tempfile.mkstemp(suffix=".docx")
+    os.close(fd)
+    tmp_path = Path(tmp_str)
+    cv = Converter(str(pdf_path))
+    try:
+        cv.convert(str(tmp_path), start=0, end=None)
+    finally:
+        cv.close()
+    return tmp_path
+
+
 class ParserRegistry:
     """Registry of available document parsers (supports Phase 2 extensibility)."""
 
