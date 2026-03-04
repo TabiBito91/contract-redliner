@@ -1,10 +1,11 @@
 """Export API routes for generating output documents."""
 
-from pathlib import Path
+import io
+import zipfile
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from app.api.comparison import _sessions, _results
 from app.api.documents import get_document_path
@@ -72,4 +73,52 @@ async def export_comparison(session_id: UUID, options: ExportOptions):
         path=str(output_path),
         filename=download_name,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+
+
+@router.post("/sessions/{session_id}/export-all")
+async def export_all_comparisons(session_id: UUID, options: ExportOptions):
+    """Generate all version comparisons and return them as a single ZIP archive."""
+    if session_id not in _sessions:
+        raise HTTPException(status_code=404, detail="Session not found.")
+
+    session = _sessions[session_id]
+    if session.status != SessionStatus.COMPLETE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Session not complete. Current status: {session.status}",
+        )
+
+    if session_id not in _results:
+        raise HTTPException(status_code=404, detail="Result not found.")
+
+    result = _results[session_id]
+    if not result.version_comparisons:
+        raise HTTPException(status_code=400, detail="No comparisons available.")
+
+    original_path = get_document_path(session.original_document_id)
+    output_dir = settings.upload_dir / "exports"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for vc in result.version_comparisons:
+            tmp_path = output_dir / f"redline_{session_id}_{uuid4().hex[:8]}.docx"
+            try:
+                generate_redline_docx(
+                    original_path=original_path,
+                    annotated_changes=vc.changes,
+                    options=options,
+                    output_path=tmp_path,
+                )
+                docx_name = f"RedlineAI_{vc.version_label.replace(' ', '_')}.docx"
+                zf.write(tmp_path, arcname=docx_name)
+            finally:
+                tmp_path.unlink(missing_ok=True)
+
+    zip_buffer.seek(0)
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="RedlineAI_all_redlines.zip"'},
     )

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import { getSession, getResult, exportRedline } from "@/services/api";
+import { getSession, getResult, exportRedline, exportAllRedlines } from "@/services/api";
 import type {
   ComparisonSession,
   ComparisonResult,
@@ -23,6 +23,7 @@ export default function ComparisonPage() {
   const [viewMode, setViewMode] = useState<"side-by-side" | "inline">("side-by-side");
   const [showSubstantiveOnly, setShowSubstantiveOnly] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [exportingAll, setExportingAll] = useState(false);
 
   // Poll for completion
   useEffect(() => {
@@ -87,6 +88,18 @@ export default function ComparisonPage() {
       setExporting(false);
     }
   }, [sessionId, activeComparison, showSubstantiveOnly]);
+
+  const handleExportAll = useCallback(async () => {
+    if (!sessionId) return;
+    setExportingAll(true);
+    try {
+      await exportAllRedlines(sessionId, { show_formatting_changes: !showSubstantiveOnly });
+    } catch (e) {
+      console.error("Export all failed:", e);
+    } finally {
+      setExportingAll(false);
+    }
+  }, [sessionId, showSubstantiveOnly]);
 
   const navigateChange = useCallback(
     (direction: 1 | -1) => {
@@ -278,6 +291,18 @@ export default function ComparisonPage() {
           <Download className="w-3.5 h-3.5" />
           {exporting ? "Exporting..." : "Export DOCX"}
         </button>
+
+        {/* Download All — only when multiple versions exist */}
+        {result.version_comparisons.length > 1 && (
+          <button
+            onClick={handleExportAll}
+            disabled={exportingAll}
+            className="flex items-center gap-1.5 px-3 py-1 text-xs rounded-lg border border-addition text-addition hover:bg-addition/10 disabled:opacity-50 transition-colors"
+          >
+            <Download className="w-3.5 h-3.5" />
+            {exportingAll ? "Zipping..." : "Download All"}
+          </button>
+        )}
 
         <div className="h-5 w-px bg-border" />
 

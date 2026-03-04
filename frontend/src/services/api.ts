@@ -114,3 +114,33 @@ export async function exportRedline(
   a.remove();
   URL.revokeObjectURL(url);
 }
+
+export async function exportAllRedlines(
+  sessionId: string,
+  options: { show_formatting_changes?: boolean } = {},
+): Promise<void> {
+  const res = await fetch(`${BASE}/export/sessions/${sessionId}/export-all`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      include_ai_summaries: true,
+      include_risk_assessments: true,
+      include_summary_appendix: true,
+      show_formatting_changes: options.show_formatting_changes ?? false,
+      output_format: "docx",
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || "Export failed");
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "RedlineAI_all_redlines.zip";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
