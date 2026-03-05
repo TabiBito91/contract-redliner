@@ -56,9 +56,15 @@ export default function ComparisonPage() {
   const activeComparison: VersionComparison | null =
     result?.version_comparisons[activeVersionIdx] ?? null;
 
+  const SIGNIFICANT_SEVERITIES = new Set(["critical", "high", "medium"]);
+
   const filteredChanges: AnnotatedChange[] = activeComparison
     ? activeComparison.changes
-        .filter((ac) => !showSubstantiveOnly || ac.change.is_substantive)
+        .filter((ac) =>
+          !showSubstantiveOnly ||
+          !ac.risk_assessment ||
+          SIGNIFICANT_SEVERITIES.has(ac.risk_assessment.severity)
+        )
         .sort((a, b) => {
           const toKey = (ctx: string | null | undefined): [number, number, string] => {
             if (ctx == null || ctx === "") return [-1, 0, ""];
@@ -291,7 +297,7 @@ export default function ComparisonPage() {
             onChange={(e) => setShowSubstantiveOnly(e.target.checked)}
             className="accent-addition"
           />
-          Substantive only
+          Significant only (Medium+)
         </label>
 
         <div className="flex-1" />
