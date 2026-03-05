@@ -278,6 +278,12 @@ def build_annotated_changes(
         risk_assessment = None
 
         if ai_data:
+            # Sync AI's substantive judgment back to the Change model so the
+            # frontend filter (showSubstantiveOnly) reflects AI assessment.
+            ai_is_substantive = ai_data.get("is_substantive")
+            if ai_is_substantive is not None:
+                change.is_substantive = ai_is_substantive
+
             # Build related change UUIDs
             related_indices = ai_data.get("related_change_indices", [])
             related_ids = []

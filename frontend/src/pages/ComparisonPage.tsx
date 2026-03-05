@@ -323,7 +323,10 @@ export default function ComparisonPage() {
         {/* Change navigation */}
         <div className="flex items-center gap-2">
           <span className="text-xs text-text-secondary">
-            {selectedChangeIdx !== null ? selectedChangeIdx + 1 : "—"} / {filteredChanges.length} changes
+            {selectedChangeIdx !== null ? selectedChangeIdx + 1 : "—"} / {filteredChanges.length}
+            {activeComparison && showSubstantiveOnly && filteredChanges.length < activeComparison.changes.length && (
+              <span className="text-text-secondary/60"> of {activeComparison.changes.length}</span>
+            )} changes
           </span>
           <button
             onClick={() => navigateChange(-1)}
