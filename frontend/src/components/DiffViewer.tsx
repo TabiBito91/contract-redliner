@@ -82,7 +82,7 @@ function SideBySideView({
                     <span className="text-deletion line-through">{c.original_text}</span>
                   )}
                   {c.change_type === "modification" && (
-                    <InlineDiffSpans original={c.original_text} modified={c.modified_text || ""} />
+                    <InlineDiffSpans original={c.original_text} modified={c.modified_text || ""} side="original" />
                   )}
                   {c.change_type !== "deletion" && c.change_type !== "modification" && c.original_text}
                 </p>
@@ -105,7 +105,7 @@ function SideBySideView({
                         <span className="text-addition underline">{c.modified_text}</span>
                       )}
                       {c.change_type === "modification" && (
-                        <InlineDiffSpans original={c.original_text || ""} modified={c.modified_text} />
+                        <InlineDiffSpans original={c.original_text || ""} modified={c.modified_text} side="modified" />
                       )}
                       {c.change_type === "move" && (
                         <span className="text-move">{c.modified_text}</span>
@@ -305,7 +305,18 @@ function computeInlineDiffs(original: string, modified: string): DiffOp[] {
   return ops;
 }
 
-function InlineDiffSpans({ original, modified }: { original: string; modified: string }) {
+function InlineDiffSpans({
+  original,
+  modified,
+  side,
+}: {
+  original: string;
+  modified: string;
+  // "original" → show equal + deletions only (left column of side-by-side)
+  // "modified" → show equal + insertions only (right column of side-by-side)
+  // undefined  → show all ops (inline view)
+  side?: "original" | "modified";
+}) {
   const ops = useMemo(() => computeInlineDiffs(original, modified), [original, modified]);
 
   return (
@@ -315,8 +326,11 @@ function InlineDiffSpans({ original, modified }: { original: string; modified: s
           return <span key={i}>{op.text}</span>;
         }
         if (op.type === "delete") {
+          if (side === "modified") return null; // hide deletions on the right
           return <span key={i} className="bg-deletion/15 text-deletion line-through">{op.text}</span>;
         }
+        // insert
+        if (side === "original") return null; // hide insertions on the left
         return <span key={i} className="bg-addition/15 text-addition underline">{op.text}</span>;
       })}
     </span>
